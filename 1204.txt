@@ -1,0 +1,767 @@
+# 1 Independent Variables
+
+# 1.1 Built Environment
+
+# 1.1.1 Cycling Route
+# 1.1.1.1 Slope
+import geopandas as gpd
+import pandas as pd
+
+# 加载数据
+stations_buffer = gpd.read_file('dissolve.shp', encoding='utf-8')
+slope_grid = gpd.read_file('网格平均坡度.shp')
+
+# 统一坐标系统
+slope_grid = slope_grid.to_crs(stations_buffer.crs)
+
+# 空间连接
+joined = gpd.sjoin(stations_buffer, slope_grid, how='inner', predicate='intersects')
+
+# 计算坡度平均值
+mean_slope = joined.groupby('name2')['pd'].mean().reset_index()
+mean_slope.columns = ['name2', 'inner_pd']
+
+# 添加坡度平均值到stations_buffer中
+stations_buffer = stations_buffer.merge(mean_slope, on='name2', how='left')
+
+stations_buffer.to_csv('坡度.csv', encoding='utf-8', index=False)
+
+# 打印最终结果检查
+print(stations_buffer)
+
+
+# 1.1.1.2Road intersection
+import geopandas as gpd
+import pandas as pd
+
+# 加载地铁站缓冲区的Shapefile
+stations_buffer = gpd.read_file('dissolve.shp', encoding='utf-8')
+
+# 加载道路交叉口的Shapefile
+intersections = gpd.read_file('多道路交叉口.shp')
+
+# 确保两个文件在同一个坐标系统下
+intersections = intersections.to_crs(stations_buffer.crs)
+
+# 空间连接，找到每个缓冲区内的交叉口
+joined = gpd.sjoin(stations_buffer, intersections, how='inner', predicate='intersects')
+
+# 计算每个缓冲区内的交叉口数
+intersection_count = joined.groupby('name2').size().reset_index(name='count')
+
+# 将交叉口数量除以面积（单位转换为平方千米）
+stations_buffer = stations_buffer.merge(intersection_count, on='name2', how='left')
+stations_buffer['count'].fillna(0, inplace=True)  # 填充那些没有交叉口的缓冲区
+stations_buffer['inner_ri'] = stations_buffer['count'] / (stations_buffer['Shape_Area'] / 1000000)
+
+
+stations_buffer.to_csv('道路交叉口.csv', encoding='utf-8', index=False)
+
+# 打印最终结果检查
+print(stations_buffer)
+
+
+# 1.1.1.3 Bus stop
+
+import geopandas as gpd
+import pandas as pd
+
+# 加载地铁站缓冲区的Shapefile
+stations_buffer = gpd.read_file('dissolve.shp', encoding='utf-8')
+
+# 加载道路交叉口的Shapefile
+intersections = gpd.read_file('公交车站.shp')
+
+# 确保两个文件在同一个坐标系统下
+intersections = intersections.to_crs(stations_buffer.crs)
+
+# 空间连接，找到每个缓冲区内的交叉口
+joined = gpd.sjoin(stations_buffer, intersections, how='inner', predicate='intersects')
+
+# 计算每个缓冲区内的交叉口数
+intersection_count = joined.groupby('name2').size().reset_index(name='count')
+
+# 将交叉口数量除以面积（单位转换为平方千米）
+stations_buffer = stations_buffer.merge(intersection_count, on='name2', how='left')
+stations_buffer['count'].fillna(0, inplace=True)  # 填充那些没有交叉口的缓冲区
+stations_buffer['inner_bs'] = stations_buffer['count'] / (stations_buffer['Shape_Area'] / 1000000)
+
+stations_buffer.to_csv('公交站点.csv', encoding='utf-8', index=False)
+
+# 打印最终结果检查
+print(stations_buffer)
+
+# 1.1.1.4 Bike lane
+
+import geopandas as gpd
+import pandas as pd
+
+# 加载地铁站缓冲区和自行车道的Shapefiles
+stations_buffer = gpd.read_file('dissolve.shp', encoding='utf-8')
+bike_lanes = gpd.read_file('自行车道.shp')
+
+# 将两个数据集转换到西安1980 3度带，中央经线为114E的坐标系统
+stations_buffer = stations_buffer.to_crs(epsg=2383)  # 确保坐标系统一致
+bike_lanes = bike_lanes.to_crs(epsg=2383)
+
+# 使用 overlay 计算每个缓冲区的自行车道密度
+overlaid_bike_lanes = gpd.overlay(bike_lanes, stations_buffer, how='intersection')
+overlaid_bike_lanes['line_length'] = overlaid_bike_lanes.geometry.length
+
+# 计算每个地铁站缓冲区的自行车道总长度
+total_length = overlaid_bike_lanes.groupby('name2')['line_length'].sum().reset_index()
+total_length.columns = ['name2', 'total_length']
+
+# 将自行车道长度除以面积，单位转换为平方千米
+stations_buffer = stations_buffer.merge(total_length, on='name2', how='left')
+stations_buffer['total_length'].fillna(0, inplace=True)  # 填充那些没有自行车道的缓冲区
+stations_buffer['inner_bl_new'] = stations_buffer['total_length'] / (stations_buffer['Shape_Area'] / 1000000)
+
+stations_buffer.to_csv('自行车道.csv', encoding='utf-8', index=False)
+
+# 打印最终结果检查
+print(stations_buffer)
+
+# 1.1.1.5 GVI ＆SVI
+# 加载地铁站缓冲区和街景影像点的Shapefiles
+
+stations_buffer = gpd.read_file('dissolve.shp', encoding='utf-8')
+street_view_points = gpd.read_file('街景影像连接.shp')
+
+# 确保坐标系统统一
+street_view_points = street_view_points.to_crs(stations_buffer.crs)
+
+# 使用空间连接找到每个缓冲区内的街景点
+joined = gpd.sjoin(stations_buffer, street_view_points, how='inner', predicate='intersects')
+
+# 计算每个地铁站缓冲区内的绿视率与天空开阔度的均值
+green_sky_avg = joined.groupby('name2')[['vegetation', 'sky']].mean().reset_index()
+green_sky_avg.columns = ['name2', 'inner_green', 'inner_sky']
+
+# 将结果合并回stations_buffer
+stations_buffer = stations_buffer.merge(green_sky_avg, on='name2', how='left')
+
+# 填充缺失值
+stations_buffer[['inner_green', 'inner_sky']] = stations_buffer[['inner_green', 'inner_sky']].fillna(0)
+
+stations_buffer.to_csv('街景.csv', encoding='utf-8', index=False)
+
+# 打印最终结果检查
+print(stations_buffer)
+
+
+# 1.1.2 Urban Space
+
+# 1.1.2.1 Urban community / Urban village / Plot ratio
+
+import geopandas as gpd
+
+# 设置坐标系统的EPSG代码
+crs_epsg = 2383
+
+# 加载数据集并只选择需要的字段
+buildings_fields = ['UP_BLDG_FL', 'geometry']
+urban_land_fields = ['CSZLBM', 'CSDLBM', 'geometry']
+buildings = gpd.read_file('建筑普查.shp', usecols=buildings_fields).to_crs(epsg=crs_epsg)
+urban_land = gpd.read_file('深圳市城市用地现状数据.shp', usecols=urban_land_fields).to_crs(epsg=crs_epsg)
+stations_buffer = gpd.read_file('dissolve.shp').to_crs(epsg=crs_epsg)
+
+
+# 预处理：裁剪建筑物到研究区域
+buildings_clipped = gpd.clip(buildings, stations_buffer)
+
+# 确保 urban_land 的字段在 buildings_clipped 中是唯一的
+overlap_fields = buildings_clipped.columns.intersection(urban_land.columns).drop('geometry')
+new_names = {old: f"ul_{old}" for old in overlap_fields}
+urban_land.rename(columns=new_names, inplace=True)
+
+# 步骤 1: 用地数据裁剪建筑物，并获取用地类型
+buildings_clipped = gpd.overlay(buildings_clipped, urban_land, how='intersection')
+buildings_clipped
+
+buildings_clipped.to_file('建筑面积信息深圳建筑轮廓.shp')
+
+fields_to_keep = ['UP_BLDG_FL', 'CSZLBM', 'CSDLBM', 'geometry']  # 举例包含你需要保留的字段
+buildings_clipped = buildings_clipped[fields_to_keep]
+buildings = buildings[['UP_BLDG_FL', 'geometry']]
+urban_land = urban_land[['CSZLBM', 'CSDLBM', 'geometry']]
+urban_land
+
+station_buffers = gpd.read_file('dissolve.shp').to_crs(epsg=crs_epsg)
+
+# 步骤 2: 进一步裁剪到地铁站缓冲区并计算各种指标
+metro_buildings = gpd.overlay(buildings_clipped, station_buffers, how='intersection')
+
+# 计算建筑物的建筑面积
+metro_buildings['Built_Area'] = metro_buildings.geometry.area * metro_buildings['UP_BLDG_FL']
+metro_buildings['Built_Area']
+# 预先计算每个建筑类型的面积
+metro_buildings['Residential_Area'] = metro_buildings.apply(lambda x: x['Built_Area'] if x['CSZLBM'] in ['R1', 'R2'] else 0, axis=1)
+metro_buildings['Village_Area'] = metro_buildings.apply(lambda x: x['Built_Area'] if x['CSZLBM'] == 'R4' else 0, axis=1)
+
+# 计算各类建筑面积汇总
+aggregations = {
+    'Built_Area': 'sum',
+    'Residential_Area': 'sum',
+    'Village_Area': 'sum',
+}
+summary = metro_buildings.groupby('name2').agg(aggregations).reset_index()
+
+
+# 添加汇总数据到地铁站缓冲区数据
+for field in ['Built_Area', 'Residential_Area', 'Village_Area']:
+    station_buffers[field] = station_buffers['name2'].map(summary.set_index('name2')[field]).fillna(0)
+
+# 计算占比
+station_buffers['inner_AR_SUM'] = station_buffers['Built_Area']
+station_buffers['inner_UC'] = station_buffers['Residential_Area'] / station_buffers['inner_AR_SUM']
+station_buffers['inner_UV'] = station_buffers['Village_Area'] / station_buffers['inner_AR_SUM']
+station_buffers['rjl'] = station_buffers['inner_AR_SUM'] / station_buffers['Shape_Area']
+
+station_buffers.to_csv('容积率.csv', encoding='utf-8', index=False)
+
+# 1.1.2.2 POI 
+
+
+import geopandas as gpd
+import pandas as pd
+
+# 加载地铁站缓冲区的Shapefile
+stations_buffer = gpd.read_file('dissolve.shp', encoding='utf-8')
+
+# 加载道路交叉口的Shapefile
+intersections = gpd.read_file('医疗保障服务.shp')  
+
+# 确保两个文件在同一个坐标系统下
+intersections = intersections.to_crs(stations_buffer.crs)
+# 空间连接，找到每个缓冲区内的交叉口
+joined = gpd.sjoin(stations_buffer, intersections, how='inner', predicate='intersects')
+
+# 计算每个缓冲区内的交叉口数
+intersection_count = joined.groupby('n').size().reset_index(name='count')
+
+# 将交叉口数量除以面积（单位转换为平方千米）
+stations_buffer = stations_buffer.merge(intersection_count, on='n', how='left')
+stations_buffer['count'].fillna(0, inplace=True)  # 填充那些没有交叉口的缓冲区
+stations_buffer['inner_医疗保障服务'] = stations_buffer['count'] / (stations_buffer['s'])
+
+
+stations_buffer.to_csv('医疗保障服务.csv', encoding='utf-8', index=False)
+
+#'餐饮', '风景名胜', '公共设施', '公司企业', '购物', '交通设施服务', '金融保险服务', '科技文化', '商务住宅',  '生活服务', '体育休闲服务', '医疗保障服务', '政府机构及社会团体', '住宿服务'
+
+
+# 1.1.2.3 POI diversity
+
+import pandas as pd  
+import numpy as np  
+  
+# 读取CSV文件  
+df = pd.read_csv('poi个数.csv', encoding='gbk')  # 替换为你的CSV文件路径  
+  
+# 初始化一个空列表来存储每行的香农熵值  
+shannon_entropies = []  
+  
+# 遍历DataFrame的每一行  
+for index, row in df.iterrows():  
+    # 跳过第一列（id）并计算当前行POI的比例  
+    poi_counts = row[1:]  # 获取除了第一列之外的所有列  
+    poi_proportions = poi_counts / poi_counts.sum()  # 计算比例  
+      
+    # 过滤掉比例为0的项，因为log2(0)是未定义的  
+    poi_proportions = poi_proportions[poi_proportions > 0]  
+      
+    # 计算香农熵  
+    shannon_entropy = -np.sum(poi_proportions * np.log2(poi_proportions))  
+      
+    # 将计算出的香农熵添加到列表中  
+    shannon_entropies.append(shannon_entropy)  
+  
+# 将香农熵列表转换为一个DataFrame  
+entropy_df = pd.DataFrame({'Shannon Entropy': shannon_entropies})  
+  
+# 保存为CSV文件  
+entropy_df.to_csv('多样性.csv', encoding='utf-8', index=False)
+
+
+# 1.1.2.4 House price  
+
+import pandas as pd  
+import geopandas as gpd  
+from shapely.geometry import Point  
+  
+# 加载数据  
+# 假设房价CSV包含'lat', 'lon', 'price'列  
+house_prices = pd.read_csv('深圳市房价.csv',encoding='gbk')  
+  
+# 将经纬度转换为点对象  
+house_prices['geometry'] = house_prices.apply(lambda row: Point(row['y'], row['x']), axis=1)  
+house_prices_gdf = gpd.GeoDataFrame(house_prices, geometry='geometry')  
+  
+# 加载地铁站缓冲区SHP文件  
+station_buffers = gpd.read_file('dissolve.shp')  
+  
+# 确保地铁站缓冲区有一个唯一的标识符，这里假设为'n'  
+  
+# 使用sjoin来找到每个缓冲区内的房价点  
+# 注意：这里我们假设每个点只属于一个缓冲区，且缓冲区不重叠或重叠部分可以忽略  
+joined = gpd.sjoin(station_buffers, house_prices_gdf, op='within', how='left')  
+  
+# 计算每个缓冲区的平均房价  
+# 注意：这里我们使用groupby和agg来计算每个缓冲区的平均房价  
+# 如果缓冲区没有房价点，则结果将是NaN，您可以选择用0或其他值填充  
+price_summary = joined.groupby('n')['房价'].agg(['mean']).reset_index()  
+  
+# 如果需要，将NaN替换为0  
+price_summary['mean'] = price_summary['mean'].fillna(0)  
+  
+# 将结果合并回原始的station_buffers DataFrame（如果需要）  
+station_buffers = station_buffers.merge(price_summary, on='n', how='left')  
+  
+# 保存结果  
+station_buffers.to_csv('房价.csv', index=False)  
+
+
+  
+
+# 1.2  Population Density
+
+import geopandas as gpd  
+import pandas as pd  
+  
+# 设置坐标系统的EPSG代码  
+crs_epsg = 2383  
+  
+# 加载数据集  
+pop_grid = gpd.read_file('带人口的社会管理网格.shp', encoding='utf-8').to_crs(epsg=crs_epsg)  
+station_buffers = gpd.read_file('dissolve.shp.shp', encoding='utf-8').to_crs(epsg=crs_epsg)  
+  
+# 计算原始社会管理网格的面积  
+pop_grid['original_area'] = pop_grid.area  
+  
+print(pop_grid.columns)  # 查看 pop_grid 的列名  
+print(station_buffers.columns)  # 查看 station_buffers 的列名  
+  
+# 假设 'OBJECTID' 是冲突的列名之一  
+if 'OBJECTID' in pop_grid.columns:  
+    pop_grid = pop_grid.rename(columns={'OBJECTID': 'POP_OBJECTID'})  
+if 'OBJECTID' in station_buffers.columns:  
+    station_buffers = station_buffers.rename(columns={'OBJECTID': 'STATION_OBJECTID'})  
+
+# 使用 overlay 计算重叠区域  
+intersection = gpd.overlay(pop_grid, station_buffers, how='intersection')  
+
+intersection['intersection_area'] = intersection.area
+intersection['area_ratio'] = intersection['intersection_area'] / intersection['original_area']
+
+# 假设 pop_grid 中有 'w' 和 'r' 列分别代表工作人口和居住人口  
+intersection['weighted_w'] = intersection['area_ratio'] * intersection['w']
+intersection['weighted_r'] = intersection['area_ratio'] * intersection['r']
+  
+# 注意：上面的 join 调用可能需要调整，具体取决于您的数据结构和索引  
+# 如果 'w' 和 'r' 已经在 intersection DataFrame 中，则可以直接使用它们  
+  
+# 汇总每个地铁站缓冲区的人口数据  
+aggregations = {  
+    'weighted_w': 'sum',  
+    'weighted_r': 'sum'  
+}  
+pop_summary = intersection.groupby('n').agg(aggregations).reset_index()  
+  
+# 重命名列以匹配输出要求  
+pop_summary.rename(columns={'weighted_w': '工作人口', 'weighted_r': '居住人口'}, inplace=True)  
+  
+# 保存结果到CSV文件  
+pop_summary.to_csv('人口.csv', encoding='utf-8', index=False)  
+  
+# 如果您想要查看结果，可以打印前几行  
+print(pop_summary[['n', '工作人口', '居住人口']].head())
+
+
+
+
+#2 Machine Learning Models
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+plt.rcParams['figure.figsize'] = (8,8)
+import geopandas as gpd
+import seaborn
+import matplotlib as mpl
+from shapely.geometry import Point,LineString,LinearRing,Polygon
+from shapely.geometry import MultiPoint,MultiLineString,MultiPolygon
+%matplotlib inline
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+
+# 计算方差膨胀因子
+def check_vif(df):
+    df = df.dropna(axis=0, how='any')  # 删除带有任何空值的行
+    df['const'] = 1  # 添加常数项，这个是重点
+    x = np.array(df)
+    vif_list = [variance_inflation_factor(x, i) for i in range(x.shape[1])]
+    df_vif = pd.DataFrame({'variable': list(df.columns), 'vif': vif_list})
+    df_vif = df_vif[~(df_vif['variable'] == 'const')]   # 删除常数项
+    print(df_vif)
+
+merged_df78=pd.read_csv("voronoi_all.csv")
+
+df11=merged_df78 [['EA','道路交叉口', '公交站点', 'inner_green', 'inner_sky', '坡度', 
+       '自行车道', 'inner_UC', 'inner_UV', 'rjl', '与区中', '与市民', '与最近',
+        'inner_风景名胜', 'inner_公共设施', '工作poi3_density',
+       'inner_金融保险服务', 'inner_科技文化',  '医疗poi1', '餐饮购物生活',
+       'Shannon Entropy','EAbike_distance','EAmetrodis_km',
+          'EAdis_diff_m','X_coord', 'Y_coord','nei1_wai0',
+                   'hedonic', 'PM25',  '工作人口', '居住人口', '2021_age', 'wdis_EA']]
+
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+import matplotlib.pyplot as plt
+
+# 假设 df11 是已经加载的 DataFrame，首先确保没有缺失值
+#df11.fillna(0, inplace=True)
+# 处理缺失值，使用列的中位数填充
+df11.fillna(df11.median(), inplace=True)
+# 设定自变量和因变量
+X = df11.iloc[:, 1:].values
+y = df11.iloc[:, 0].values
+X_indices = df11.index.values
+# 划分数据集为训练集和测试集，保留索引
+X_train, X_test, y_train, y_test, idx_train, idx_test = train_test_split(X, y, X_indices, test_size=0.2, random_state=42)
+
+# 使用随机森林回归模型
+regressor = RandomForestRegressor(n_estimators=500, random_state=42, max_features='sqrt', min_samples_split=2)
+regressor.fit(X_train, y_train)
+y_pred = regressor.predict(X_test)
+
+# 评估模型
+mae = mean_absolute_error(y_test, y_pred)
+mse = mean_squared_error(y_test, y_pred)
+rmse = np.sqrt(mse)
+r2 = r2_score(y_test, y_pred)
+
+# 输出评估结果
+print(f'Mean Absolute Error: {mae:.3f}')
+print(f'Mean Squared Error: {mse:.3f}')
+print(f'Root Mean Squared Error: {rmse:.3f}')
+print(f'r2 score: {r2:.3f}')
+# 步骤4：重要性排序
+importances = list(regressor.feature_importances_)
+feature_list = list(df11.columns)[1:]
+
+# 将特征及其重要性进行排序
+feature_importances = [(feature, round(importance, 2)) for feature, importance in zip(feature_list, importances)]
+feature_importances = sorted(feature_importances, key=lambda x: x[1], reverse=True)
+
+# 打印重要性排名
+importances = regressor.feature_importances_
+indices = np.argsort(importances)[::-1]
+plt.figure()
+plt.title('Feature Importances')
+plt.bar(range(len(importances)), importances[indices], align='center')
+plt.xticks(range(len(importances)), df11.columns[1:][indices], rotation=90)
+plt.ylabel('Importance')
+plt.xlabel('Features')
+plt.show()
+
+# 打印特征重要性排名
+print("特征重要性排序：")
+feature_list = list(df11.columns[1:])  # 除去第一个列（即目标变量列）
+feature_importances = [(feature, round(importance, 2)) for feature, importance in zip(feature_list, importances)]
+feature_importances = sorted(feature_importances, key=lambda x: x[1], reverse=True)
+for feature, importance in feature_importances:
+    print(f'Variable: {feature:20} Importance: {importance}')
+
+
+
+import shap
+import matplotlib.pyplot as plt
+import matplotlib
+import numpy as np
+from scipy.interpolate import UnivariateSpline
+import statsmodels.api as sm
+# 设置字体为Times New Roman
+matplotlib.rcParams['font.family'] = 'Times New Roman'
+# 设置matplotlib支持中文显示
+matplotlib.rcParams['font.family'] = 'SimHei'
+matplotlib.rcParams['font.size'] = 10
+matplotlib.rcParams['axes.unicode_minus'] = False
+matplotlib.rcParams['font.size'] = 14  # 设置字体大小
+
+# 创建SHAP解释器
+explainer = shap.TreeExplainer(regressor)
+shap_values = explainer.shap_values(X)  # 计算SHAP值
+
+# 总体特征重要性图，显示所有特征
+plt.figure(figsize=(12, 8))
+shap.summary_plot(shap_values, X, plot_type="bar", feature_names=df11.columns[1:], show=False, max_display=X.shape[1])
+plt.title("总体特征重要性", fontsize=20)
+plt.gca().spines['top'].set_visible(True)
+plt.gca().spines['right'].set_visible(True)
+plt.savefig("Feature_Importance_Bar.png")
+plt.show()
+
+# 计算每个特征的平均绝对 SHAP 值
+feature_importances = np.abs(shap_values).mean(0)
+feature_names = df11.columns[1:]
+# 创建一个包含特征名称和其平均绝对 SHAP 值的列表
+features_with_importances = list(zip(feature_names, feature_importances))
+
+# 按 SHAP 值大小排序
+features_with_importances_sorted = sorted(features_with_importances, key=lambda x: x[1], reverse=True)
+
+# 打印每个特征及其重要性值
+for name, importance in features_with_importances_sorted:
+    print(f'Feature: {name:30} SHAP Importance: {importance:.3f}')
+
+# 其他配置保持不变
+matplotlib.rcParams['grid.linestyle'] = '--'  # 设置网格线为虚线
+matplotlib.rcParams['axes.spines.top'] = True   # 开启上边框
+matplotlib.rcParams['axes.spines.right'] = True # 开启右边框
+matplotlib.rcParams['axes.spines.left'] = True  # 开启左边框
+matplotlib.rcParams['axes.linewidth'] = 0.5     # 设置边框线宽
+
+# 为每个顶级特征绘制依赖图
+top_features = features_with_importances_sorted[:12]
+
+for feature_name, _ in top_features:
+    feature_index = feature_names.tolist().index(feature_name)
+    plt.figure(figsize=(16, 6))
+    shap.dependence_plot(feature_index, shap_values, X, feature_names=feature_names, show=False)
+    plt.title(f"依赖图: {feature_name}", fontsize=18)
+    plt.grid(True)
+    plt.gca().spines['top'].set_visible(True)
+    plt.gca().spines['right'].set_visible(True)
+    plt.gca().spines['left'].set_visible(True)
+    
+    # 添加平滑的拟合线，使用样条回归（UnivariateSpline）
+    x_vals = plt.gca().collections[0].get_offsets().data[:, 0]
+    y_vals = plt.gca().collections[0].get_offsets().data[:, 1]
+    if len(x_vals) > 0:
+        sort_index = np.argsort(x_vals)
+        x_vals_sorted = x_vals[sort_index]
+        y_vals_sorted = y_vals[sort_index]
+        try:
+# 使用三次多项式拟合
+            # z = np.polyfit(x_vals_sorted, y_vals_sorted, 3)  # 使用三次多项式拟合
+            # p = np.poly1d(z)
+            # smooth_x = np.linspace(x_vals_sorted.min(), x_vals_sorted.max(), 500)
+            # plt.plot(smooth_x, p(smooth_x), color='blue', alpha=1, linewidth=1)
+
+
+
+# 使用LOWESS进行局部加权回归
+            lowess = sm.nonparametric.lowess(y_vals_sorted, x_vals_sorted, frac=0.3)  # frac 参数调整平滑度
+            plt.plot(lowess[:, 0], lowess[:, 1], color='blue', alpha=1, linewidth=1)  # 绘制LOWESS拟合线
+
+# 使用样条插值
+
+            # spline = UnivariateSpline(x_vals_sorted, y_vals_sorted, s=105)  # s 参数控制平滑度
+            # smooth_x = np.linspace(x_vals_sorted.min(), x_vals_sorted.max(), 500)
+            # plt.plot(smooth_x, spline(smooth_x), color='blue', alpha=1, linewidth=1)
+        except Exception as e:
+            print(f"Error in fitting for {feature_name}: {str(e)}")
+
+    plt.show()
+
+
+
+
+import shap
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.colors import LinearSegmentedColormap
+import matplotlib
+
+# 设置matplotlib支持中文显示
+matplotlib.rcParams['font.family'] = 'SimHei'
+matplotlib.rcParams['font.size'] = 10
+matplotlib.rcParams['axes.unicode_minus'] = False
+
+# 设置边框和网格样式
+matplotlib.rcParams['axes.spines.top'] = True   # 开启上边框
+matplotlib.rcParams['axes.spines.right'] = True # 开启右边框
+matplotlib.rcParams['axes.spines.left'] = True  # 开启左边框
+matplotlib.rcParams['grid.linestyle'] = '--'    # 设置网格线为虚线
+matplotlib.rcParams['grid.alpha'] = 0.5         # 设置网格线透明度
+matplotlib.rcParams['axes.linewidth'] = 0.5     # 设置边框线宽
+
+# 创建自定义 colormap：紫色到黄色的渐变
+colors = [(0.58, 0.1, 0.83), (1, 0.84, 0)]  # 紫色和黄色
+n_bins = 100  # 渐变的数量
+cmap_name = 'purple_yellow'
+cm = LinearSegmentedColormap.from_list(cmap_name, colors, N=n_bins)
+
+# 计算 SHAP 值，基于整个 X 数据集
+#explainer = shap.TreeExplainer(regressor)
+#shap_values = explainer.shap_values(X)
+
+# 获取特征重要性（平均绝对 SHAP 值）
+feature_importance = np.mean(np.abs(shap_values), axis=0)
+
+# 绘制 SHAP 摘要图并应用自定义配色方案
+plt.figure(figsize=(16, 10))  # 增加图形尺寸
+shap.summary_plot(shap_values, X, feature_names=df11.columns[1:], show=False, cmap=cm, max_display=50)
+
+# 创建一个包含特征名称和其平均绝对 SHAP 值的列表
+features_with_importances = list(zip(df11.columns[1:], feature_importance))
+
+# 按 SHAP 值大小排序
+features_with_importances_sorted = sorted(features_with_importances, key=lambda x: x[1], reverse=False)
+
+# 在每个特征旁边添加保留三位小数的 SHAP 值
+for i, (feature, importance) in enumerate(features_with_importances_sorted):
+    plt.text(-58.35, i, f'{importance:.3f}', ha='left', va='center', fontsize=10, fontname='Times New Roman')
+
+# 设置稀疏的网格线
+plt.grid(True, which='major', axis='both', linestyle='--', linewidth=0.5, alpha=0.5)
+
+# 调整图形整体右移，以避免数字遮挡图表内容
+plt.subplots_adjust(left=0.2, right=0.9)  # 调整边界
+
+# 设置标题和轴标签
+plt.title("SHAP摘要图", fontsize=20)
+plt.gca().spines['top'].set_visible(True)
+plt.gca().spines['right'].set_visible(True)
+
+# 显示图像
+plt.show()
+
+
+
+
+# 计算每个特征的平均绝对 SHAP 值
+feature_importances = np.abs(shap_values).mean(0)
+feature_names = df11.columns[1:]
+
+# 创建一个包含特征名称和其平均绝对 SHAP 值的列表
+features_with_importances = list(zip(feature_names, feature_importances))
+
+# 按 SHAP 值大小排序，取最大的八个特征
+top_8_features_with_importances = sorted(features_with_importances, key=lambda x: x[1], reverse=True)[:30]
+
+# 打印前八个特征及其重要性值
+for name, importance in top_8_features_with_importances:
+    print(f'Feature: {name:30} SHAP Importance: {importance:.3f}')
+
+# 定义需要分析的字段
+fields = [name for name, importance in top_8_features_with_importances]
+
+# 提取每个字段对应的 SHAP 值
+for field in fields:
+    feature_index = df11.columns.get_loc(field) - 1  # 获取特征索引
+    shap_values_field = shap_values[:, feature_index]
+    
+    # 获取全数据集的空间坐标
+    x_coords = df11['X_coord'].values
+    y_coords = df11['Y_coord'].values
+    
+    # 检查数组长度是否一致
+    if len(x_coords) == len(y_coords) == len(shap_values_field):
+        # 创建七个等级的圆点大小和颜色
+        size_conditions = [
+            (shap_values_field >= 2.5),
+            (shap_values_field >= 2.0) & (shap_values_field < 2.5),
+            (shap_values_field >= 1.5) & (shap_values_field < 2.0),
+            (shap_values_field >= 1.0) & (shap_values_field < 1.5),
+            (shap_values_field >= 0.5) & (shap_values_field < 1.0),
+            (shap_values_field >= 0.3) & (shap_values_field < 0.5),
+            (shap_values_field < 0.3)
+        ]
+        sizes = [250, 200, 150, 100, 70, 50, 30]  # 对应不同的圆点大小
+        colors = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'gray']  # 对应不同的颜色
+        
+        # 根据条件生成圆点大小和颜色数组
+        point_sizes = np.select(size_conditions, sizes)
+        point_colors = np.select(size_conditions, colors)
+        
+        plt.figure(figsize=(16, 10))
+        
+        # 绘制散点图，使用指定的大小和颜色
+        sc = plt.scatter(x_coords, y_coords, c=point_colors, s=point_sizes, alpha=0.75, edgecolor='k', linewidth=0.5)
+        
+        # 添加图例，代表不同 SHAP 值范围
+        legend_elements = [
+            plt.Line2D([0], [0], marker='o', color='w', label='>= 2.5', markersize=np.sqrt(300), markerfacecolor='red', markeredgecolor='k'),
+            plt.Line2D([0], [0], marker='o', color='w', label='2.0 - 2.5', markersize=np.sqrt(250), markerfacecolor='orange', markeredgecolor='k'),
+            plt.Line2D([0], [0], marker='o', color='w', label='1.5 - 2.0', markersize=np.sqrt(200), markerfacecolor='yellow', markeredgecolor='k'),
+            plt.Line2D([0], [0], marker='o', color='w', label='1.0 - 1.5', markersize=np.sqrt(150), markerfacecolor='green', markeredgecolor='k'),
+            plt.Line2D([0], [0], marker='o', color='w', label='0.5 - 1.0', markersize=np.sqrt(100), markerfacecolor='blue', markeredgecolor='k'),
+            plt.Line2D([0], [0], marker='o', color='w', label='0.3 - 0.5', markersize=np.sqrt(60), markerfacecolor='purple', markeredgecolor='k'),
+            plt.Line2D([0], [0], marker='o', color='w', label='<= 0.3', markersize=np.sqrt(40), markerfacecolor='gray', markeredgecolor='k')
+        ]
+        plt.legend(handles=legend_elements, title="SHAP值范围", loc="upper right", prop={'size': 15})  # 修改字体大小和样式
+        
+        # 设置标题和坐标轴标签
+        plt.title(f"特征'{field}'的SHAP值空间分布", fontsize=20)
+        plt.xlabel("X坐标 (WGS84)", fontsize=14)
+        plt.ylabel("Y坐标 (WGS84)", fontsize=14)
+        
+        # 显示网格和边框
+        plt.grid(True, linestyle='--', alpha=0.6)
+        plt.gca().spines['top'].set_visible(True)
+        plt.gca().spines['right'].set_visible(True)
+        plt.gca().spines['left'].set_visible(True)
+        
+        # 显示图像
+        plt.show()
+    else:
+        print(f"坐标和SHAP值的长度不一致，请检查数据。特征: {field}")
+
+
+
+
+import shap
+import matplotlib.pyplot as plt
+import numpy as np
+from IPython.display import display
+
+# 计算 SHAP 值，基于整个 X 数据集
+#explainer = shap.TreeExplainer(regressor)
+#shap_values = explainer.shap_values(X)  # 使用整个数据集 X 计算 SHAP 值
+
+# 选择两个任意样本（基于整个数据集 X）
+sample_1_index = 80  # 第一个样本的索引87布吉 205西乡 144灵芝
+sample_2_index = 84  # 第二个样本的索引高新园
+
+# 获取两个样本的 SHAP 值
+sample_1_shap_values = shap_values[sample_1_index]
+sample_2_shap_values = shap_values[sample_2_index]
+
+# 获取基础值和模型预测值
+expected_value = explainer.expected_value
+
+# 将 SHAP 值和特征值保留三位小数
+rounded_sample_1_shap_values = np.round(sample_1_shap_values, 3)
+rounded_sample_1_features = np.round(X[sample_1_index], 3)
+
+rounded_sample_2_shap_values = np.round(sample_2_shap_values, 3)
+rounded_sample_2_features = np.round(X[sample_2_index], 3)
+
+# 绘制第一个样本的 SHAP force plot 并显示（基于 X）
+shap_plot_1 = shap.force_plot(
+    base_value=expected_value,
+    shap_values=rounded_sample_1_shap_values,
+    features=rounded_sample_1_features,
+    feature_names=df11.columns[1:],  # 添加字段名称
+    matplotlib=True
+)
+plt.title("Sample 1 SHAP Force Plot")
+plt.show()
+
+# 绘制第二个样本的 SHAP force plot 并显示（基于 X）
+shap_plot_2 = shap.force_plot(
+    base_value=expected_value,
+    shap_values=rounded_sample_2_shap_values,
+    features=rounded_sample_2_features,
+    feature_names=df11.columns[1:],  # 添加字段名称
+    matplotlib=True
+)
+plt.title("Sample 2 SHAP Force Plot")
+plt.show()
+
+
+
